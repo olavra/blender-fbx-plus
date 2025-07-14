@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 bl_info = {
-    "name": "FBX format",
-    "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem",
+    "name": "FBX Plus",
+    "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem, Alvaro Luque",
     "version": (5, 13, 0),
     "blender": (4, 5, 0),
     "location": "File > Import-Export",
@@ -48,7 +48,7 @@ from bpy_extras.io_utils import (
 class ImportFBX(bpy.types.Operator, ImportHelper):
     """Load a FBX file"""
     bl_idname = "import_scene.fbx"
-    bl_label = "Import FBX"
+    bl_label = "Import FBX +"
     bl_options = {'UNDO', 'PRESET'}
 
     directory: StringProperty(
@@ -293,7 +293,7 @@ def import_panel_armature(layout, operator):
 class ExportFBX(bpy.types.Operator, ExportHelper):
     """Write a FBX file"""
     bl_idname = "export_scene.fbx"
-    bl_label = "Export FBX"
+    bl_label = "Export FBX +"
     bl_options = {'UNDO', 'PRESET'}
 
     filename_ext = ".fbx"
@@ -515,6 +515,14 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         description="Always add a keyframe at start and end of actions for animated channels",
         default=True,
     )
+    action_name_format: EnumProperty(
+        name="Action Names",
+        items=(('ACTION', "Action", "Use action name only (default)"),
+               ('OBJECT_ACTION', "Object | Action", "Use object name | action name format"),
+               ),
+        description="Format to use for action names in the exported FBX file",
+        default='ACTION',
+    )
     bake_anim_step: FloatProperty(
         name="Sampling Rate",
         description="How often to evaluate animated values (in frames)",
@@ -686,6 +694,7 @@ def export_panel_animation(layout, operator):
         body.prop(operator, "bake_anim_use_nla_strips")
         body.prop(operator, "bake_anim_use_all_actions")
         body.prop(operator, "bake_anim_force_startend_keying")
+        body.prop(operator, "action_name_format")
         body.prop(operator, "bake_anim_step")
         body.prop(operator, "bake_anim_simplify_factor")
 
@@ -703,11 +712,11 @@ class IO_FH_fbx(bpy.types.FileHandler):
 
 
 def menu_func_import(self, context):
-    self.layout.operator(ImportFBX.bl_idname, text="FBX (.fbx)")
+    self.layout.operator(ImportFBX.bl_idname, text="FBX + (.fbx)")
 
 
 def menu_func_export(self, context):
-    self.layout.operator(ExportFBX.bl_idname, text="FBX (.fbx)")
+    self.layout.operator(ExportFBX.bl_idname, text="FBX + (.fbx)")
 
 
 classes = (

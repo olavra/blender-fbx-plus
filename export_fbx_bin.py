@@ -2433,7 +2433,21 @@ def fbx_animations(scene_data):
     def add_anim(animations, animated, anim):
         nonlocal frame_start, frame_end
         if anim is not None:
-            animations.append(anim)
+            _astack_key, astack, _alayer_key, _name, _fstart, _fend = anim
+            _name = _name.decode("utf-8")
+            
+            # Apply action name formatting based on setting
+            if scene_data.settings.action_name_format == 'ACTION':
+                # Original code by Alessandro Ribeiro
+                if "|" in _name:
+                    indexed = _name.find("|")
+                    _name = _name[indexed+1:]
+            elif scene_data.settings.action_name_format == 'OBJECT_ACTION':
+                pass
+            
+            _name = _name.encode("utf-8")
+            
+            animations.append((_astack_key, astack, _alayer_key, _name, _fstart, _fend))
             f_start, f_end = anim[4:6]
             if f_start < frame_start:
                 frame_start = f_start
@@ -3436,6 +3450,7 @@ def save_single(operator, scene, depsgraph, filepath="",
                 bake_anim_step=1.0,
                 bake_anim_simplify_factor=1.0,
                 bake_anim_force_startend_keying=True,
+                action_name_format='ACTION',
                 add_leaf_bones=False,
                 primary_bone_axis='Y',
                 secondary_bone_axis='X',
@@ -3516,7 +3531,7 @@ def save_single(operator, scene, depsgraph, filepath="",
         add_leaf_bones, bone_correction_matrix, bone_correction_matrix_inv,
         bake_anim, bake_anim_use_all_bones, bake_anim_use_nla_strips, bake_anim_use_all_actions,
         bake_anim_step, bake_anim_simplify_factor, bake_anim_force_startend_keying,
-        False, media_settings, use_custom_props, colors_type, prioritize_active_color
+        action_name_format, False, media_settings, use_custom_props, colors_type, prioritize_active_color
     )
 
     import bpy_extras.io_utils
@@ -3601,6 +3616,7 @@ def defaults_unity3d():
         "bake_anim_step": 1.0,
         "bake_anim_use_nla_strips": True,
         "bake_anim_use_all_actions": True,
+        "action_name_format": 'ACTION',  # Default action name format
         "add_leaf_bones": False,  # Avoid memory/performance cost for something only useful for modelling
         "primary_bone_axis": 'Y',  # Doesn't really matter for Unity, so leave unchanged
         "secondary_bone_axis": 'X',
