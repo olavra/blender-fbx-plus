@@ -523,6 +523,11 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         description="Format to use for action names in the exported FBX file",
         default='ACTION',
     )
+    add_rest_pose_as_action: BoolProperty(
+        name="Add Rest Pose as Action",
+        description="Export the rest pose as an action with 1 frame, exported as the first action",
+        default=False,
+    )
     bake_anim_step: FloatProperty(
         name="Sampling Rate",
         description="How often to evaluate animated values (in frames)",
@@ -690,11 +695,13 @@ def export_panel_animation(layout, operator):
     header.label(text="Animation")
     if body:
         body.enabled = operator.bake_anim
+        body.prop(operator, "add_rest_pose_as_action")
         body.prop(operator, "bake_anim_use_all_bones")
         body.prop(operator, "bake_anim_use_nla_strips")
         body.prop(operator, "bake_anim_use_all_actions")
-        body.prop(operator, "bake_anim_force_startend_keying")
         body.prop(operator, "action_name_format")
+        body.separator()
+        body.prop(operator, "bake_anim_force_startend_keying")
         body.prop(operator, "bake_anim_step")
         body.prop(operator, "bake_anim_simplify_factor")
 

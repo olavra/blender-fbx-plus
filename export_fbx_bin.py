@@ -2220,7 +2220,7 @@ def fbx_generate_leaf_bones(settings, data_bones):
     return leaf_bones
 
 
-def fbx_animations_do(scene_data, ref_id, f_start, f_end, start_zero, objects=None, force_keep=False):
+def fbx_animations_do(scene_data, ref_id, f_start, f_end, start_zero, objects=None, force_keep=False, custom_name=None):
     """
     Generate animation data (a single AnimStack) from objects, for a given frame range.
     """
@@ -2411,7 +2411,7 @@ def fbx_animations_do(scene_data, ref_id, f_start, f_end, start_zero, objects=No
 
     astack_key = get_blender_anim_stack_key(scene, ref_id)
     alayer_key = get_blender_anim_layer_key(scene, ref_id)
-    name = (get_blenderID_name(ref_id) if ref_id else scene.name).encode()
+    name = (custom_name if custom_name else (get_blenderID_name(ref_id) if ref_id else scene.name)).encode()
 
     if start_zero:
         f_end -= f_start
@@ -2501,6 +2501,30 @@ def fbx_animations(scene_data):
         for ob, ob_act, restore_use_tweak_mode in ob_actions:
             ob.animation_data.action = ob_act
             ob.animation_data.use_tweak_mode = restore_use_tweak_mode
+
+    # Add rest pose as action if requested (exported first)
+    if scene_data.settings.add_rest_pose_as_action:
+        for ob_obj in scene_data.objects:
+            # Only process armatures for rest pose
+            if not (ob_obj.is_object and ob_obj.type == 'ARMATURE'):
+                continue
+
+            ob = ob_obj.bdata  # Back to real Blender Object.
+
+            if not ob.animation_data:
+                continue
+
+            if ob.animation_data.is_property_readonly('action'):
+                continue
+
+            # Create rest pose animation (1 frame)
+            # Use the object itself as reference ID for rest pose
+            rest_pose_ref_id = ob
+            
+            # Export rest pose as single frame animation
+            add_anim(animations, animated,
+                     fbx_animations_do(scene_data, rest_pose_ref_id, 0, 0, True,
+                                       objects={ob_obj}, force_keep=True, custom_name="Bind Pose"))
 
     # All actions.
     if scene_data.settings.bake_anim_use_all_actions:
@@ -3451,6 +3475,7 @@ def save_single(operator, scene, depsgraph, filepath="",
                 bake_anim_simplify_factor=1.0,
                 bake_anim_force_startend_keying=True,
                 action_name_format='ACTION',
+                add_rest_pose_as_action=False,
                 add_leaf_bones=False,
                 primary_bone_axis='Y',
                 secondary_bone_axis='X',
@@ -3531,7 +3556,7 @@ def save_single(operator, scene, depsgraph, filepath="",
         add_leaf_bones, bone_correction_matrix, bone_correction_matrix_inv,
         bake_anim, bake_anim_use_all_bones, bake_anim_use_nla_strips, bake_anim_use_all_actions,
         bake_anim_step, bake_anim_simplify_factor, bake_anim_force_startend_keying,
-        action_name_format, False, media_settings, use_custom_props, colors_type, prioritize_active_color
+        action_name_format, add_rest_pose_as_action, False, media_settings, use_custom_props, colors_type, prioritize_active_color
     )
 
     import bpy_extras.io_utils
@@ -3617,6 +3642,7 @@ def defaults_unity3d():
         "bake_anim_use_nla_strips": True,
         "bake_anim_use_all_actions": True,
         "action_name_format": 'ACTION',  # Default action name format
+        "add_rest_pose_as_action": False,  # Default rest pose setting
         "add_leaf_bones": False,  # Avoid memory/performance cost for something only useful for modelling
         "primary_bone_axis": 'Y',  # Doesn't really matter for Unity, so leave unchanged
         "secondary_bone_axis": 'X',
