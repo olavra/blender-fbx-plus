@@ -20,6 +20,8 @@ if "bpy" in locals():
         importlib.reload(data_types)
     if "fbx_utils" in locals():
         importlib.reload(fbx_utils)
+    if "bake_transform_module" in locals():
+        importlib.reload(bake_transform_module)
 
 import bpy
 import bpy_extras
@@ -28,6 +30,7 @@ from bpy.app.translations import pgettext_tip as tip_
 from mathutils import Vector, Matrix
 
 from . import encode_bin, data_types, fbx_utils
+from . import bake_transform as bake_transform_module
 from .fbx_utils import (
     # Constants.
     FBX_VERSION, FBX_HEADER_VERSION, FBX_SCENEINFO_VERSION, FBX_TEMPLATES_VERSION,
@@ -3495,6 +3498,7 @@ def save_single(operator, scene, depsgraph, filepath="",
                 embed_textures=False,
                 use_custom_props=False,
                 bake_space_transform=False,
+                bake_transform=False,
                 armature_nodetype='NULL',
                 colors_type='SRGB',
                 prioritize_active_color=False,
@@ -3572,6 +3576,25 @@ def save_single(operator, scene, depsgraph, filepath="",
     print('\nFBX export starting... %r' % filepath)
     start_time = time.time()
 
+    # Apply Bake Transform if enabled and axis settings are correct
+    transform_applied = False
+    
+    # Bake Transform is only available when Forward = -Z and Up = Y
+    is_bake_transform_available = (axis_forward == '-Z' and axis_up == 'Y')
+    
+    if bake_transform and context_objects and is_bake_transform_available:
+        print("BAKE_TRANSFORM: Applying bake transformation before export...")
+        
+        transform_applied, _, _ = bake_transform_module.apply_bake_transform_to_objects(
+            context_objects, bpy.context
+        )
+        if transform_applied:
+            print("BAKE_TRANSFORM: Bake transformation applied successfully")
+        else:
+            print("BAKE_TRANSFORM: Warning - Some objects failed bake transformation")
+    elif bake_transform and not is_bake_transform_available:
+        print("BAKE_TRANSFORM: Skipping - Bake Transform is only available with Forward: -Z, Up: Y")
+
     # Generate some data about exported scene...
     scene_data = fbx_data_from_scene(scene, depsgraph, settings)
 
@@ -3614,6 +3637,16 @@ def save_single(operator, scene, depsgraph, filepath="",
         bpy_extras.io_utils.path_reference_copy(media_settings.copy_set)
 
     print('export finished in %.4f sec.' % (time.time() - start_time))
+    
+    # Revert Bake Transform if it was applied
+    if transform_applied:
+        print("BAKE_TRANSFORM: Reverting bake transformation...")
+        
+        # Apply inverse Bake Transform to fully restore original state
+        bake_transform_module.revert_bake_transform_from_objects(context_objects, bpy.context)
+        
+        print("BAKE_TRANSFORM: Bake transformation reverted successfully")
+    
     return {'FINISHED'}
 
 

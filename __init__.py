@@ -26,6 +26,8 @@ if "bpy" in locals():
         importlib.reload(export_fbx)
     if "anim_utils" in locals():
         importlib.reload(anim_utils)
+    if "bake_transform" in locals():
+        importlib.reload(bake_transform)
 
 
 import bpy
@@ -47,6 +49,7 @@ from bpy_extras.io_utils import (
 )
 
 from . import anim_utils
+from . import bake_transform
 
 
 @orientation_helper(axis_forward='-Z', axis_up='Y')
@@ -368,6 +371,14 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         "(WARNING! experimental option, use at own risk, known to be broken with armatures/animations)",
         default=False,
     )
+    bake_transform: BoolProperty(
+        name="Bake Transform",
+        description="Pre-transform mesh data by rotating -90° in X, applying the rotation, then rotating +90° in X "
+        "to fix coordinate system alignment between Blender and target applications. "
+        "Only available when Forward = -Z and Up = Y "
+        "(WARNING! experimental option, use at own risk, known to be broken with armatures/animations)",
+        default=False,
+    )
 
     object_types: EnumProperty(
         name="Object Types",
@@ -670,6 +681,12 @@ def export_panel_transform(layout, operator):
         body.prop(operator, "use_space_transform")
         row = body.row()
         row.prop(operator, "bake_space_transform")
+        row.label(text="", icon='ERROR')
+        row = body.row()
+        # Bake Transform is only available when Forward = -Z and Up = Y
+        is_bake_transform_available = (operator.axis_forward == '-Z' and operator.axis_up == 'Y')
+        row.enabled = is_bake_transform_available
+        row.prop(operator, "bake_transform")
         row.label(text="", icon='ERROR')
 
 
