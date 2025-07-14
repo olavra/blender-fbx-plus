@@ -35,6 +35,7 @@ from bpy.props import (
     FloatProperty,
     EnumProperty,
     CollectionProperty,
+    IntProperty,
 )
 from bpy_extras.io_utils import (
     ImportHelper,
@@ -517,6 +518,11 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         type=anim_utils.ActionSelectionItem,
         name="Selected Actions",
         description="Actions to export (only selected actions will be exported)",
+    )
+    selected_actions_index: IntProperty(
+        name="Selected Actions Index",
+        description="Index of currently selected action in the list",
+        default=0,
     )
     bake_anim_force_startend_keying: BoolProperty(
         name="Force Start/End Keying",

@@ -1,6 +1,6 @@
 import bpy
 from bpy.props import StringProperty, BoolProperty, CollectionProperty
-from bpy.types import PropertyGroup
+from bpy.types import PropertyGroup, UIList
 
 
 class ActionSelectionItem(PropertyGroup):
@@ -8,6 +8,61 @@ class ActionSelectionItem(PropertyGroup):
     name: StringProperty()
     action: StringProperty()  # Store action name as string
     selected: BoolProperty(default=True)
+
+
+class ACTION_UL_selection_list(UIList):
+    """UIList for displaying action selection with checkboxes and compatibility info"""
+    
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            # Get the action and check compatibility
+            action = bpy.data.actions.get(item.action)
+            is_compatible = True
+            compatible_objects = []
+            
+            # Check compatibility if actions export is enabled
+            if hasattr(data, 'bake_anim_export_actions') and data.bake_anim_export_actions:
+                is_compatible, compatible_objects = is_action_compatible_with_export(context, data, action)
+            
+            # Main row
+            row = layout.row(align=True)
+            
+            # Checkbox
+            checkbox_row = row.row()
+            if not is_compatible:
+                checkbox_row.alert = True
+            checkbox_row.prop(item, "selected", text="")
+            
+            # Action name
+            name_row = row.row()
+            if not is_compatible:
+                name_row.alert = True
+            name_row.label(text=item.name)
+            
+            # Right side - compatibility info and count
+            info_row = row.row()
+            info_row.alignment = 'RIGHT'
+            
+            if not is_compatible:
+                # Warning icon for incompatible actions
+                warning_op = info_row.operator("action.show_compatibility_warning", text="", icon='ERROR', emboss=False)
+                warning_op.action_name = item.name
+                info_row.label(text="0")
+            else:
+                # Info icon and count for compatible actions
+                if compatible_objects:
+                    count = len(compatible_objects)
+                    info_op = info_row.operator("action.show_compatibility_info", text="", icon='OUTLINER_OB_ARMATURE', emboss=False)
+                    info_op.action_name = item.name
+                    info_op.compatible_objects = "\n".join(f"• {obj_name}" for obj_name in compatible_objects)
+                    info_row.label(text=str(count))
+                else:
+                    # No compatible objects but no error
+                    info_row.label(text="", icon='BLANK1')
+                    info_row.label(text="0")
+        elif self.layout_type == 'GRID':
+            layout.prop(item, "selected", text="")
+            layout.label(text=item.name)
 
 
 class ACTION_OT_show_compatibility_warning(bpy.types.Operator):
@@ -40,6 +95,60 @@ class ACTION_OT_show_compatibility_info(bpy.types.Operator):
         return f"Action '{properties.action_name}' compatibility information"
     
     def execute(self, context):
+        return {'FINISHED'}
+
+
+class ACTION_OT_select_all_actions(bpy.types.Operator):
+    """Select all actions in the list"""
+    bl_idname = "action.select_all_actions"
+    bl_label = "Select All"
+    bl_description = "Select all actions for export"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    # Store reference to the operator
+    operator_ref = None
+    
+    def execute(self, context):
+        if self.operator_ref and hasattr(self.operator_ref, 'selected_actions'):
+            for item in self.operator_ref.selected_actions:
+                item.selected = True
+        return {'FINISHED'}
+
+
+class ACTION_OT_deselect_all_actions(bpy.types.Operator):
+    """Deselect all actions in the list"""
+    bl_idname = "action.deselect_all_actions"
+    bl_label = "Deselect All"
+    bl_description = "Deselect all actions for export"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    # Store reference to the operator
+    operator_ref = None
+    
+    def execute(self, context):
+        if self.operator_ref and hasattr(self.operator_ref, 'selected_actions'):
+            for item in self.operator_ref.selected_actions:
+                item.selected = False
+        return {'FINISHED'}
+
+
+class ACTION_OT_select_compatible_actions(bpy.types.Operator):
+    """Select only compatible actions in the list"""
+    bl_idname = "action.select_compatible_actions"
+    bl_label = "Select Compatible"
+    bl_description = "Select only actions that are compatible with the exported objects"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    # Store reference to the operator
+    operator_ref = None
+    
+    def execute(self, context):
+        if self.operator_ref and hasattr(self.operator_ref, 'selected_actions'):
+            for item in self.operator_ref.selected_actions:
+                action = bpy.data.actions.get(item.action)
+                if action:
+                    is_compatible, _ = is_action_compatible_with_export(context, self.operator_ref, action)
+                    item.selected = is_compatible
         return {'FINISHED'}
 
 
@@ -166,7 +275,7 @@ def populate_action_list(operator):
 
 
 def draw_action_selection_ui(layout, operator, enabled=True):
-    """Draw the action selection UI in the export panel"""
+    """Draw the action selection UI in the export panel using template_list"""
     # Always populate selected_actions collection
     populate_action_list(operator)
     
@@ -177,65 +286,28 @@ def draw_action_selection_ui(layout, operator, enabled=True):
     box = layout.box()
     box.enabled = enabled
     
-    # Show action list with checkboxes
     if available_actions:
-        # Create a column for the action list
-        col = box.column(align=True)
+        # Set the operator reference for selection operators
+        ACTION_OT_select_all_actions.operator_ref = operator
+        ACTION_OT_deselect_all_actions.operator_ref = operator
+        ACTION_OT_select_compatible_actions.operator_ref = operator
         
-        # Adjust scale for better fitting when many actions
-        if len(available_actions) > 10:
-            col.scale_y = 0.9  # Slightly smaller rows for many actions
+        # Template list for actions
+        box.template_list(
+            "ACTION_UL_selection_list", "",  # UIList identifier
+            operator, "selected_actions",     # Data collection
+            operator, "selected_actions_index",  # Active index property
+            rows=6, maxrows=12               # Display settings
+        )
         
-        # Show all actions with checkboxes
-        for i, action_item in enumerate(operator.selected_actions):
-            row = col.row()
-            
-            # Check if this action is compatible with exported objects
-            context = bpy.context
-            action = bpy.data.actions.get(action_item.action)
-            is_compatible = True
-            compatible_objects = []
-            
-            # Only check compatibility if actions export is enabled
-            if enabled and hasattr(operator, 'bake_anim_export_actions') and operator.bake_anim_export_actions:
-                is_compatible, compatible_objects = is_action_compatible_with_export(context, operator, action)
-            
-            # Add the checkbox
-            prop_row = row.row()
-            if not is_compatible:
-                prop_row.alert = True
-            prop_row.prop(action_item, "selected", text=action_item.name)
-            prop_row.alignment = 'LEFT'
-            
-            # Add info/warning icon with fixed small size
-            icon_row = row.row()
-            icon_row.scale_x = 0.8  # Make icons smaller
-            icon_row.scale_y = 0.8
-            prop_row.alignment = 'RIGHT'
-            
-            # Add count row - always show count
-            count_row = row.row()
-            count_row.scale_x = 0.8
-            count_row.scale_y = 0.8
-            count_row.alignment = 'RIGHT'
-            
-            if not is_compatible:
-                # Warning icon for incompatible actions
-                warning_op = icon_row.operator("action.show_compatibility_warning", text="", icon='ERROR')
-                warning_op.action_name = action_item.name
-                # Show 0 for incompatible actions
-                count_row.label(text="0")
-            else:
-                # Info icon with count for compatible actions
-                if compatible_objects:
-                    count = len(compatible_objects)
-                    icon = 'OUTLINER_OB_ARMATURE'
-                    # Use emboss=False for a cleaner look and add count as overlay
-                    info_op = icon_row.operator("action.show_compatibility_info", text="", icon=icon, emboss=False)
-                    info_op.action_name = action_item.name
-                    info_op.compatible_objects = "\n".join(f"• {obj_name}" for obj_name in compatible_objects)
-                    # Always show count (including 1)
-                    count_row.label(text=str(count))
+        # Selection buttons
+        row = box.row(align=True)
+        select_all_op = row.operator("action.select_all_actions", text="All", icon='CHECKBOX_HLT')
+        deselect_all_op = row.operator("action.deselect_all_actions", text="None", icon='CHECKBOX_DEHLT')
+        
+        # Add compatible selection button if actions export is enabled
+        if hasattr(operator, 'bake_anim_export_actions') and operator.bake_anim_export_actions:
+            compatible_op = row.operator("action.select_compatible_actions", text="Compatible", icon='CHECKMARK')
     else:
         box.label(text="No actions available", icon='INFO')
 
@@ -248,12 +320,20 @@ def get_selected_action_names(operator):
 def register():
     """Register the PropertyGroup classes"""
     bpy.utils.register_class(ActionSelectionItem)
+    bpy.utils.register_class(ACTION_UL_selection_list)
     bpy.utils.register_class(ACTION_OT_show_compatibility_warning)
     bpy.utils.register_class(ACTION_OT_show_compatibility_info)
+    bpy.utils.register_class(ACTION_OT_select_all_actions)
+    bpy.utils.register_class(ACTION_OT_deselect_all_actions)
+    bpy.utils.register_class(ACTION_OT_select_compatible_actions)
 
 
 def unregister():
     """Unregister the PropertyGroup classes"""
     bpy.utils.unregister_class(ActionSelectionItem)
+    bpy.utils.unregister_class(ACTION_UL_selection_list)
     bpy.utils.unregister_class(ACTION_OT_show_compatibility_warning)
-    bpy.utils.unregister_class(ACTION_OT_show_compatibility_info) 
+    bpy.utils.unregister_class(ACTION_OT_show_compatibility_info)
+    bpy.utils.unregister_class(ACTION_OT_select_all_actions)
+    bpy.utils.unregister_class(ACTION_OT_deselect_all_actions)
+    bpy.utils.unregister_class(ACTION_OT_select_compatible_actions) 
