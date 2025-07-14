@@ -24,6 +24,8 @@ if "bpy" in locals():
         importlib.reload(export_fbx_bin)
     if "export_fbx" in locals():
         importlib.reload(export_fbx)
+    if "anim_utils" in locals():
+        importlib.reload(anim_utils)
 
 
 import bpy
@@ -42,6 +44,8 @@ from bpy_extras.io_utils import (
     axis_conversion,
     poll_file_object_drop,
 )
+
+from . import anim_utils
 
 
 @orientation_helper(axis_forward='-Z', axis_up='Y')
@@ -503,12 +507,16 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         "instead of global scene animation",
         default=True,
     )
-    bake_anim_use_all_actions: BoolProperty(
-        name="All Actions",
-        description="Export each action as a separated FBX's AnimStack, instead of global scene animation "
-        "(note that animated objects will get all actions compatible with them, "
-        "others will get no animation at all)",
+    bake_anim_export_actions: BoolProperty(
+        name="Actions",
+        description="Export actions as separated FBX AnimStacks",
         default=True,
+    )
+    # Action selection for fine-grained control
+    selected_actions: CollectionProperty(
+        type=anim_utils.ActionSelectionItem,
+        name="Selected Actions",
+        description="Actions to export (only selected actions will be exported)",
     )
     bake_anim_force_startend_keying: BoolProperty(
         name="Force Start/End Keying",
@@ -608,6 +616,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
                                             ))
 
         keywords["global_matrix"] = global_matrix
+        keywords["selected_actions"] = self.selected_actions
 
         from . import export_fbx_bin
         return export_fbx_bin.save(self, context, **keywords)
@@ -698,7 +707,11 @@ def export_panel_animation(layout, operator):
         body.prop(operator, "add_rest_pose_as_action")
         body.prop(operator, "bake_anim_use_all_bones")
         body.prop(operator, "bake_anim_use_nla_strips")
-        body.prop(operator, "bake_anim_use_all_actions")
+        body.prop(operator, "bake_anim_export_actions")
+        
+        # Action selection UI - always show, but grey out if actions not enabled
+        anim_utils.draw_action_selection_ui(body, operator, enabled=operator.bake_anim_export_actions)
+        
         body.prop(operator, "action_name_format")
         body.separator()
         body.prop(operator, "bake_anim_force_startend_keying")
@@ -734,6 +747,8 @@ classes = (
 
 
 def register():
+    anim_utils.register()
+    
     for cls in classes:
         bpy.utils.register_class(cls)
 
@@ -747,6 +762,8 @@ def unregister():
 
     for cls in classes:
         bpy.utils.unregister_class(cls)
+    
+    anim_utils.unregister()
 
 
 if __name__ == "__main__":

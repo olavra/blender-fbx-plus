@@ -2526,8 +2526,8 @@ def fbx_animations(scene_data):
                      fbx_animations_do(scene_data, rest_pose_ref_id, 0, 0, True,
                                        objects={ob_obj}, force_keep=True, custom_name="Bind Pose"))
 
-    # All actions.
-    if scene_data.settings.bake_anim_use_all_actions:
+    # Export actions if enabled.
+    if scene_data.settings.bake_anim_export_actions and scene_data.settings.selected_actions:
         def validate_actions(act, path_resolve):
             for fc in act.fcurves:
                 data_path = fc.data_path
@@ -2557,6 +2557,9 @@ def fbx_animations(scene_data):
                 if not ob_to.is_property_readonly(p):
                     setattr(ob_to, p, getattr(ob_from, p))
 
+        # Get selected action names
+        selected_action_names = {item.action for item in scene_data.settings.selected_actions if item.selected}
+
         for ob_obj in scene_data.objects:
             # Actions only for objects, not bones!
             if not ob_obj.is_object:
@@ -2580,6 +2583,10 @@ def fbx_animations(scene_data):
             path_resolve = ob.path_resolve
 
             for act in bpy.data.actions:
+                # Only export selected actions
+                if act.name not in selected_action_names:
+                    continue
+                    
                 # For now, *all* paths in the action must be valid for the object, to validate the action.
                 # Unless that action was already assigned to the object!
                 if act != org_act and not validate_actions(act, path_resolve):
@@ -2605,8 +2612,8 @@ def fbx_animations(scene_data):
             bpy.data.objects.remove(ob_copy)
             scene.frame_set(scene.frame_current, subframe=0.0)
 
-    # Global (containing everything) animstack, only if not exporting NLA strips and/or all actions.
-    if not scene_data.settings.bake_anim_use_nla_strips and not scene_data.settings.bake_anim_use_all_actions:
+    # Global (containing everything) animstack, only if not exporting NLA strips and not exporting actions.
+    if not scene_data.settings.bake_anim_use_nla_strips and not scene_data.settings.bake_anim_export_actions:
         add_anim(animations, animated, fbx_animations_do(scene_data, None, scene.frame_start, scene.frame_end, False))
 
     # Be sure to update all matrices back to org state!
@@ -3470,7 +3477,8 @@ def save_single(operator, scene, depsgraph, filepath="",
                 bake_anim=True,
                 bake_anim_use_all_bones=True,
                 bake_anim_use_nla_strips=True,
-                bake_anim_use_all_actions=True,
+                bake_anim_export_actions=True,
+                selected_actions=None,
                 bake_anim_step=1.0,
                 bake_anim_simplify_factor=1.0,
                 bake_anim_force_startend_keying=True,
@@ -3554,7 +3562,7 @@ def save_single(operator, scene, depsgraph, filepath="",
         mesh_smooth_type, use_subsurf, use_mesh_edges, use_tspace, use_triangles,
         armature_nodetype, use_armature_deform_only,
         add_leaf_bones, bone_correction_matrix, bone_correction_matrix_inv,
-        bake_anim, bake_anim_use_all_bones, bake_anim_use_nla_strips, bake_anim_use_all_actions,
+        bake_anim, bake_anim_use_all_bones, bake_anim_use_nla_strips, bake_anim_export_actions, selected_actions,
         bake_anim_step, bake_anim_simplify_factor, bake_anim_force_startend_keying,
         action_name_format, add_rest_pose_as_action, False, media_settings, use_custom_props, colors_type, prioritize_active_color
     )
@@ -3640,7 +3648,8 @@ def defaults_unity3d():
         "bake_anim_simplify_factor": 1.0,
         "bake_anim_step": 1.0,
         "bake_anim_use_nla_strips": True,
-        "bake_anim_use_all_actions": True,
+        "bake_anim_export_actions": True,
+        "selected_actions": None,
         "action_name_format": 'ACTION',  # Default action name format
         "add_rest_pose_as_action": False,  # Default rest pose setting
         "add_leaf_bones": False,  # Avoid memory/performance cost for something only useful for modelling
