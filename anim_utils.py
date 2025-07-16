@@ -29,9 +29,13 @@ class ACTION_UL_selection_list(UIList):
             
             # Checkbox
             checkbox_row = row.row()
+            checkbox_row.alignment = 'LEFT'
             if not is_compatible:
                 checkbox_row.alert = True
             checkbox_row.prop(item, "selected", text="")
+            
+            # Add some spacing between checkbox and name
+            row.separator_spacer()
             
             # Action name
             name_row = row.row()

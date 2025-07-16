@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: GPL-2.0-or-later
 
 bl_info = {
-    "name": "FBX Plus",
+    "name": "FBX +",
     "author": "Campbell Barton, Bastien Montagne, Jens Restemeier, @Mysteryem, Alvaro Luque",
     "version": (5, 13, 0),
     "blender": (4, 5, 0),
@@ -55,7 +55,7 @@ from . import bake_transform
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ImportFBX(bpy.types.Operator, ImportHelper):
     """Load a FBX file"""
-    bl_idname = "import_scene.fbx"
+    bl_idname = "plus_import_scene.fbx" # Changed from "import_scene.fbx"
     bl_label = "Import FBX +"
     bl_options = {'UNDO', 'PRESET'}
 
@@ -300,7 +300,7 @@ def import_panel_armature(layout, operator):
 @orientation_helper(axis_forward='-Z', axis_up='Y')
 class ExportFBX(bpy.types.Operator, ExportHelper):
     """Write a FBX file"""
-    bl_idname = "export_scene.fbx"
+    bl_idname = "plus_export_scene.fbx" # Changed from "export_scene.fbx"
     bl_label = "Export FBX +"
     bl_options = {'UNDO', 'PRESET'}
 
@@ -743,7 +743,7 @@ def export_panel_animation(layout, operator):
 
 
 class IO_FH_fbx(bpy.types.FileHandler):
-    bl_idname = "IO_FH_fbx"
+    bl_idname = "IO_FH_fbx_plus"
     bl_label = "FBX"
     bl_import_operator = "import_scene.fbx"
     bl_export_operator = "export_scene.fbx"
