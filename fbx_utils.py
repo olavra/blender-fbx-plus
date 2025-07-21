@@ -1897,6 +1897,7 @@ FBXExportSettings = namedtuple("FBXExportSettings", (
     "armature_nodetype", "use_armature_deform_only", "add_leaf_bones",
     "bone_correction_matrix", "bone_correction_matrix_inv",
     "bake_anim", "bake_anim_use_all_bones", "bake_anim_use_nla_strips", "bake_anim_export_actions", "selected_actions",
+    "bake_anim_export_animation_groups", "selected_animation_groups",
     "bake_anim_step", "bake_anim_simplify_factor", "bake_anim_force_startend_keying",
     "action_name_format", "add_rest_pose_as_action", "use_metadata", "media_settings", "use_custom_props", "colors_type", "prioritize_active_color"
 ))

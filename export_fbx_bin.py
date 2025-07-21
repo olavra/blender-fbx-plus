@@ -2524,9 +2524,9 @@ def fbx_animations(scene_data):
             # Use the object itself as reference ID for rest pose
             rest_pose_ref_id = ob
             
-            # Export rest pose as single frame animation
+            # Export rest pose as single frame animation (use 0-1 for Unity compatibility)
             add_anim(animations, animated,
-                     fbx_animations_do(scene_data, rest_pose_ref_id, 0, 0, True,
+                     fbx_animations_do(scene_data, rest_pose_ref_id, 0, 1, True,
                                        objects={ob_obj}, force_keep=True, custom_name="Bind Pose"))
 
     # Export actions if enabled.
@@ -2602,6 +2602,9 @@ def fbx_animations(scene_data):
                         # Temporarily assign the action to the object for export
                         ob.animation_data.action = act
                         frame_start, frame_end = act.frame_range
+                        # Ensure single-frame animations have minimum duration for Unity compatibility
+                        if frame_start == frame_end:
+                            frame_end = frame_start + 1.0
                         add_anim(animations, animated,
                                  fbx_animations_do(scene_data, (ob, act), frame_start, frame_end, True,
                                                    objects={ob_obj}, force_keep=True))
@@ -2626,6 +2629,9 @@ def fbx_animations(scene_data):
                         continue
                     ob.animation_data.action = act
                     frame_start, frame_end = act.frame_range
+                    # Ensure single-frame animations have minimum duration for Unity compatibility
+                    if frame_start == frame_end:
+                        frame_end = frame_start + 1.0
                     add_anim(animations, animated,
                              fbx_animations_do(scene_data, (ob, act), frame_start, frame_end, True,
                                                objects={ob_obj}, force_keep=True))
@@ -2647,8 +2653,206 @@ def fbx_animations(scene_data):
             bpy.data.objects.remove(ob_copy)
             scene.frame_set(scene.frame_current, subframe=0.0)
 
-    # Global (containing everything) animstack, only if not exporting NLA strips and not exporting actions.
-    if not scene_data.settings.bake_anim_use_nla_strips and not scene_data.settings.bake_anim_export_actions:
+    # Export Animation Groups if enabled.
+    if scene_data.settings.bake_anim_export_animation_groups and scene_data.settings.selected_animation_groups:
+        from .anim_utils import is_action_binder_enabled, get_animation_groups_data
+        
+        def reset_objects_to_rest_state(objects):
+            """Reset objects to rest state - clear animations and reset poses"""
+            for obj_wrap in objects:
+                if not obj_wrap.is_object:
+                    continue
+                    
+                obj = obj_wrap.bdata
+                
+                # Clear animation data
+                if obj.animation_data:
+                    # Just clear the action - this automatically handles slot clearing
+                    obj.animation_data.action = None
+                
+                # Reset armature poses
+                if obj.type == 'ARMATURE' and obj.pose:
+                    for pose_bone in obj.pose.bones:
+                        pose_bone.location = (0, 0, 0)
+                        pose_bone.rotation_quaternion = (1, 0, 0, 0)
+                        pose_bone.rotation_euler = (0, 0, 0)
+                        pose_bone.scale = (1, 1, 1)
+                        
+                        # Reset custom properties to defaults
+                        for prop_name in pose_bone.keys():
+                            if not prop_name.startswith("_"):
+                                try:
+                                    prop_ui = pose_bone.id_properties_ui(prop_name)
+                                    if prop_ui and hasattr(prop_ui, 'default'):
+                                        pose_bone[prop_name] = prop_ui.default
+                                except:
+                                    pass
+                
+                # Reset shape keys
+                if obj.type == 'MESH' and obj.data and hasattr(obj.data, 'shape_keys') and obj.data.shape_keys:
+                    shape_keys = obj.data.shape_keys
+                    if shape_keys.animation_data:
+                        shape_keys.animation_data.action = None
+                    
+                    for key_block in shape_keys.key_blocks:
+                        if key_block.name != "Basis":
+                            key_block.value = 0.0
+        
+        if is_action_binder_enabled():
+            groups_data = get_animation_groups_data()
+            if groups_data:
+                # Get selected animation group names
+                selected_group_names = {item.group_name for item in scene_data.settings.selected_animation_groups if item.selected}
+                
+                # Get objects that would be exported
+                export_objects = scene_data.objects
+                export_object_names = {obj.bdata.name for obj in export_objects if obj.is_object}
+                
+                # Store the original state of ALL export objects before any animation group processing
+                all_original_states = []
+                for obj_wrap in export_objects:
+                    if not obj_wrap.is_object:
+                        continue
+                    obj = obj_wrap.bdata
+                    
+                    original_state = {
+                        'obj': obj,
+                        'action': obj.animation_data.action if obj.animation_data else None,
+                        'action_slot': getattr(obj.animation_data, 'action_slot', None) if obj.animation_data else None,
+                    }
+                    
+                    # Store pose bone states for armatures
+                    if obj.type == 'ARMATURE' and obj.pose:
+                        original_state['pose_bones'] = {}
+                        for pose_bone in obj.pose.bones:
+                            original_state['pose_bones'][pose_bone.name] = {
+                                'location': pose_bone.location.copy(),
+                                'rotation_quaternion': pose_bone.rotation_quaternion.copy(),
+                                'rotation_euler': pose_bone.rotation_euler.copy(),
+                                'scale': pose_bone.scale.copy(),
+                                'custom_props': {k: v for k, v in pose_bone.items() if not k.startswith("_")}
+                            }
+                    
+                    # Store shape key states
+                    if obj.type == 'MESH' and obj.data and hasattr(obj.data, 'shape_keys') and obj.data.shape_keys:
+                        shape_keys = obj.data.shape_keys
+                        original_state['shape_keys'] = {
+                            'action': shape_keys.animation_data.action if shape_keys.animation_data else None,
+                            'values': {kb.name: kb.value for kb in shape_keys.key_blocks if kb.name != "Basis"}
+                        }
+                    
+                    all_original_states.append(original_state)
+                
+                # Process each Animation Group
+                for group in groups_data.groups:
+                    if group.name not in selected_group_names:
+                        continue
+                    
+                    if not group.action:
+                        continue
+                    
+                    # Reset all objects to rest state before processing this group
+                    reset_objects_to_rest_state(export_objects)
+                    
+                    # Get assigned objects from the group
+                    assigned_objects = []
+                    for assignment in group.slot_assignments:
+                        if assignment.assigned_object and assignment.assigned_object.name in export_object_names:
+                            # Find the corresponding ObjectWrapper
+                            for obj_wrap in export_objects:
+                                if obj_wrap.is_object and obj_wrap.bdata.name == assignment.assigned_object.name:
+                                    assigned_objects.append(obj_wrap)
+                                    break
+                    
+                    if not assigned_objects:
+                        continue  # Skip groups with no assigned objects in export selection
+                    
+                    # Get action frame range
+                    action = group.action
+                    frame_start, frame_end = action.frame_range
+                    
+                    # Ensure single-frame animations have minimum duration for Unity compatibility
+                    if frame_start == frame_end:
+                        frame_end = frame_start + 1.0  # Give single frame animations 1-frame duration
+                    
+                    # Temporarily assign the action to all assigned objects
+                    for obj_wrap in assigned_objects:
+                        obj = obj_wrap.bdata
+                        if not obj.animation_data:
+                            obj.animation_data_create()
+                        
+                        # Assign the Animation Group action
+                        obj.animation_data.action = action
+                        
+                        # If the action has slots, find the appropriate slot for this object
+                        if (hasattr(action, 'slots') and action.slots and 
+                            hasattr(obj.animation_data, 'action_slot')):
+                            # Find the slot assignment for this object
+                            for assignment in group.slot_assignments:
+                                if assignment.assigned_object and assignment.assigned_object.name == obj.name:
+                                    if assignment.slot_index < len(action.slots):
+                                        obj.animation_data.action_slot = action.slots[assignment.slot_index]
+                                    break
+                    
+                    # Export the animation with the Animation Group name
+                    add_anim(animations, animated,
+                             fbx_animations_do(scene_data, (group, action), frame_start, frame_end, True,
+                                               objects=set(assigned_objects), force_keep=True, custom_name=group.name))
+                
+                # Restore ALL objects to their original state after all Animation Groups are processed
+                for original_state in all_original_states:
+                    obj = original_state['obj']
+                    
+                    # Restore animation data
+                    if obj.animation_data:
+                        obj.animation_data.action = original_state['action']
+                        # Only set action slot if there's an action and a slot to set
+                        if (original_state['action'] and original_state['action_slot'] and 
+                            hasattr(obj.animation_data, 'action_slot')):
+                            obj.animation_data.action_slot = original_state['action_slot']
+                    elif original_state['action']:
+                        obj.animation_data_create()
+                        obj.animation_data.action = original_state['action']
+                        # Only set action slot if there's a slot to set
+                        if (original_state['action_slot'] and 
+                            hasattr(obj.animation_data, 'action_slot')):
+                            obj.animation_data.action_slot = original_state['action_slot']
+                    
+                    # Restore pose bone states
+                    if 'pose_bones' in original_state and obj.type == 'ARMATURE' and obj.pose:
+                        for bone_name, bone_state in original_state['pose_bones'].items():
+                            if bone_name in obj.pose.bones:
+                                pose_bone = obj.pose.bones[bone_name]
+                                pose_bone.location = bone_state['location']
+                                pose_bone.rotation_quaternion = bone_state['rotation_quaternion']
+                                pose_bone.rotation_euler = bone_state['rotation_euler']
+                                pose_bone.scale = bone_state['scale']
+                                
+                                # Restore custom properties
+                                for prop_name, prop_value in bone_state['custom_props'].items():
+                                    pose_bone[prop_name] = prop_value
+                    
+                    # Restore shape key states
+                    if 'shape_keys' in original_state and obj.type == 'MESH' and obj.data and hasattr(obj.data, 'shape_keys') and obj.data.shape_keys:
+                        shape_keys = obj.data.shape_keys
+                        if shape_keys.animation_data:
+                            shape_keys.animation_data.action = original_state['shape_keys']['action']
+                        elif original_state['shape_keys']['action']:
+                            shape_keys.animation_data_create()
+                            shape_keys.animation_data.action = original_state['shape_keys']['action']
+                        
+                        for kb_name, kb_value in original_state['shape_keys']['values'].items():
+                            if kb_name in [kb.name for kb in shape_keys.key_blocks]:
+                                shape_keys.key_blocks[kb_name].value = kb_value
+                
+                # Ensure scene is at rest state
+                scene.frame_set(scene.frame_current, subframe=0.0)
+                scene_data.depsgraph.update()
+
+    # Global (containing everything) animstack, only if not exporting NLA strips, actions, or animation groups.
+    if (not scene_data.settings.bake_anim_use_nla_strips and 
+        not scene_data.settings.bake_anim_export_actions and
+        not (scene_data.settings.bake_anim_export_animation_groups and scene_data.settings.selected_animation_groups)):
         add_anim(animations, animated, fbx_animations_do(scene_data, None, scene.frame_start, scene.frame_end, False))
 
     # Be sure to update all matrices back to org state!
@@ -3591,6 +3795,10 @@ def save_single(operator, scene, depsgraph, filepath="",
         set(),  # embedded_set
     )
 
+    # Extract Animation Groups parameters from kwargs with defaults
+    bake_anim_export_animation_groups = kwargs.get('bake_anim_export_animation_groups', True)
+    selected_animation_groups = kwargs.get('selected_animation_groups', None)
+    
     settings = FBXExportSettings(
         operator.report, (axis_up, axis_forward), global_matrix, global_scale, apply_unit_scale, unit_scale,
         bake_space_transform, global_matrix_inv, global_matrix_inv_transposed,
@@ -3599,6 +3807,7 @@ def save_single(operator, scene, depsgraph, filepath="",
         armature_nodetype, use_armature_deform_only,
         add_leaf_bones, bone_correction_matrix, bone_correction_matrix_inv,
         bake_anim, bake_anim_use_all_bones, bake_anim_use_nla_strips, bake_anim_export_actions, selected_actions,
+        bake_anim_export_animation_groups, selected_animation_groups,
         bake_anim_step, bake_anim_simplify_factor, bake_anim_force_startend_keying,
         action_name_format, add_rest_pose_as_action, False, media_settings, use_custom_props, colors_type, prioritize_active_color
     )

@@ -524,6 +524,12 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         description="Export actions as separated FBX AnimStacks",
         default=True,
     )
+    # Animation Groups export option (only available when Action Binder is enabled)
+    bake_anim_export_animation_groups: BoolProperty(
+        name="Animation Groups",
+        description="Export Animation Groups as separated FBX AnimStacks (requires Action Binder addon)",
+        default=True,
+    )
     # Action selection for fine-grained control
     selected_actions: CollectionProperty(
         type=anim_utils.ActionSelectionItem,
@@ -533,6 +539,17 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
     selected_actions_index: IntProperty(
         name="Selected Actions Index",
         description="Index of currently selected action in the list",
+        default=0,
+    )
+    # Animation Groups selection for fine-grained control
+    selected_animation_groups: CollectionProperty(
+        type=anim_utils.AnimationGroupSelectionItem,
+        name="Selected Animation Groups",
+        description="Animation Groups to export (only selected groups will be exported)",
+    )
+    selected_animation_groups_index: IntProperty(
+        name="Selected Animation Groups Index", 
+        description="Index of currently selected animation group in the list",
         default=0,
     )
     bake_anim_force_startend_keying: BoolProperty(
@@ -634,6 +651,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
 
         keywords["global_matrix"] = global_matrix
         keywords["selected_actions"] = self.selected_actions
+        keywords["selected_animation_groups"] = self.selected_animation_groups
 
         from . import export_fbx_bin
         return export_fbx_bin.save(self, context, **keywords)
@@ -734,6 +752,18 @@ def export_panel_animation(layout, operator):
         
         # Action selection UI - always show, but grey out if actions not enabled
         anim_utils.draw_action_selection_ui(body, operator, enabled=operator.bake_anim_export_actions)
+        
+        # Animation Groups option (only show if Action Binder is enabled)
+        if anim_utils.is_action_binder_enabled():
+            body.prop(operator, "bake_anim_export_animation_groups")
+            
+            # Animation Groups selection UI - always show, but grey out if animation groups not enabled
+            anim_utils.draw_animation_group_selection_ui(body, operator, enabled=operator.bake_anim_export_animation_groups)
+        else:
+            # Show why Animation Groups are not available
+            debug_box = body.box()
+            debug_box.label(text="Animation Groups not available", icon='ERROR')
+            debug_box.label(text="Action Binder addon not detected")
         
         body.prop(operator, "action_name_format")
         body.separator()
