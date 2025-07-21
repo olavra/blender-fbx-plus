@@ -834,7 +834,7 @@ def fbx_data_mesh_shapes_elements(root, me_obj, me, scene_data, fbx_me_tmpl, fbx
         elem_data_single_float64_array(fbx_channel, b"FullWeights", shape_verts_weights)
 
         # *WHY* add this in linked mesh properties too? *cry*
-        # No idea whether it’s percent here too, or more usual factor (assume percentage for now) :/
+        # No idea whether it's percent here too, or more usual factor (assume percentage for now) :/
         elem_props_template_set(fbx_me_tmpl, fbx_me_props, "p_number", shape.name.encode(), shape.value * 100.0,
                                 animatable=True)
 
@@ -2576,36 +2576,68 @@ def fbx_animations(scene_data):
             if ob.animation_data.is_property_readonly('action'):
                 continue  # Cannot re-assign 'active action' to this object (usually related to NLA usage, see T48089).
 
-            # We can't play with animdata and actions and get back to org state easily.
-            # So we have to add a temp copy of the object to the scene, animate it, and remove it... :/
             ob_copy = ob.copy()
-            # Great, have to handle bones as well if needed...
             pbones_matrices = [pbo.matrix_basis.copy() for pbo in ob.pose.bones] if ob.type == 'ARMATURE' else ...
 
             org_act = ob.animation_data.action
             path_resolve = ob.path_resolve
 
             for act in bpy.data.actions:
-                # Only export selected actions
                 if act.name not in selected_action_names:
                     continue
-                    
-                # For now, *all* paths in the action must be valid for the object, to validate the action.
-                # Unless that action was already assigned to the object!
-                if act != org_act and not validate_actions(act, path_resolve):
-                    continue
-                ob.animation_data.action = act
-                frame_start, frame_end = act.frame_range  # sic!
-                add_anim(animations, animated,
-                         fbx_animations_do(scene_data, (ob, act), frame_start, frame_end, True,
-                                           objects={ob_obj}, force_keep=True))
-                # Ugly! :/
-                if pbones_matrices is not ...:
-                    for pbo, mat in zip(ob.pose.bones, pbones_matrices):
-                        pbo.matrix_basis = mat.copy()
-                ob.animation_data.action = org_act
-                restore_object(ob, ob_copy)
-                scene.frame_set(scene.frame_current, subframe=0.0)
+
+                # --- Begin per-slot compatibility check ---
+                # If the action has slots, check each slot for compatibility
+                exported_any_slot = False
+                if hasattr(act, 'slots') and act.slots:
+                    for slot_index, slot in enumerate(act.slots):
+                        # Import slot compatibility helpers from anim_utils
+                        from .anim_utils import get_fcurves_for_slot, validate_fcurves_for_object
+                        slot_type = getattr(slot, 'target_id_type', 'OBJECT')
+                        slot_fcurves = get_fcurves_for_slot(act, slot_index)
+                        if not slot_fcurves:
+                            continue
+                        if not validate_fcurves_for_object(slot_fcurves, ob, slot_type):
+                            continue
+                        # Temporarily assign the action to the object for export
+                        ob.animation_data.action = act
+                        frame_start, frame_end = act.frame_range
+                        add_anim(animations, animated,
+                                 fbx_animations_do(scene_data, (ob, act), frame_start, frame_end, True,
+                                                   objects={ob_obj}, force_keep=True))
+                        exported_any_slot = True
+                        # Optionally: break here if you only want to export the first compatible slot
+                        break
+                        # Or continue to allow multiple slots per object
+                        # continue
+                else:
+                    # Fallback: old logic for actions without slots
+                    def validate_actions(act, path_resolve):
+                        for fc in act.fcurves:
+                            data_path = fc.data_path
+                            if fc.array_index:
+                                data_path = data_path + "[%d]" % fc.array_index
+                            try:
+                                path_resolve(data_path)
+                            except ValueError:
+                                return False  # Invalid.
+                        return True  # Valid.
+                    if act != org_act and not validate_actions(act, path_resolve):
+                        continue
+                    ob.animation_data.action = act
+                    frame_start, frame_end = act.frame_range
+                    add_anim(animations, animated,
+                             fbx_animations_do(scene_data, (ob, act), frame_start, frame_end, True,
+                                               objects={ob_obj}, force_keep=True))
+                    exported_any_slot = True
+
+                if exported_any_slot:
+                    if pbones_matrices is not ...:
+                        for pbo, mat in zip(ob.pose.bones, pbones_matrices):
+                            pbo.matrix_basis = mat.copy()
+                    ob.animation_data.action = org_act
+                    restore_object(ob, ob_copy)
+                    scene.frame_set(scene.frame_current, subframe=0.0)
 
             if pbones_matrices is not ...:
                 for pbo, mat in zip(ob.pose.bones, pbones_matrices):
