@@ -215,6 +215,53 @@ def validate_actions(act, path_resolve):
     return True  # All paths valid
 
 
+def get_fcurves_for_slot(action, slot_index):
+    """Get all f-curves for a specific slot in an action"""
+    if not (hasattr(action, 'slots') and action.slots and slot_index < len(action.slots)):
+        return []
+    
+    slot = action.slots[slot_index]
+    fcurves = []
+    
+    try:
+        # Get the channelbag for this slot
+        if hasattr(action, 'layers') and action.layers:
+            layer = action.layers[0]  # Blender 4.4 only supports single layer
+            if hasattr(layer, 'strips') and layer.strips:
+                strip = layer.strips[0]  # Single strip
+                if hasattr(strip, 'channelbag'):
+                    channelbag = strip.channelbag(slot)
+                    if channelbag and hasattr(channelbag, 'fcurves'):
+                        fcurves = list(channelbag.fcurves)
+    except Exception as e:
+        print(f"Error getting f-curves for slot {slot_index}: {e}")
+    
+    return fcurves
+
+
+def validate_fcurves_for_object(fcurves, obj, slot_type):
+    """Validate if f-curves are compatible with an object"""
+    if not fcurves:
+        return True  # Empty f-curves are technically valid
+    
+    # Determine target object based on slot type
+    if slot_type == 'KEY':
+        if not (obj.type == 'MESH' and obj.data and hasattr(obj.data, 'shape_keys') and obj.data.shape_keys):
+            return False  # Object has no shape keys
+        target_obj = obj.data.shape_keys
+    else:
+        target_obj = obj
+    
+    # Check each f-curve
+    for fcurve in fcurves:
+        try:
+            target_obj.path_resolve(fcurve.data_path)
+        except Exception:
+            return False  # Invalid path
+    
+    return True  # All paths valid
+
+
 def is_action_compatible_with_export(context, operator, action):
     """Check if an action is compatible with any of the objects that would be exported
     
@@ -245,12 +292,31 @@ def is_action_compatible_with_export(context, operator, action):
             continue
         
         # Check if action is compatible with this object
+        # First check against the object's default path_resolve (for actions without slots)
         try:
             path_resolve = obj.path_resolve
             if validate_actions(action, path_resolve):
                 compatible_objects.append(obj.name)
+                continue  # If compatible with default, no need to check slots
         except Exception:
-            continue  # Skip objects that can't be checked
+            pass  # Continue to check slots
+        
+        # Check against action slots
+        if hasattr(action, 'slots') and action.slots:
+            for slot_index, slot in enumerate(action.slots):
+                try:
+                    # Get the slot type
+                    slot_type = getattr(slot, 'target_id_type', 'OBJECT')
+                    
+                    # Get f-curves for this specific slot
+                    slot_fcurves = get_fcurves_for_slot(action, slot_index)
+                    
+                    # Validate f-curves against the object
+                    if validate_fcurves_for_object(slot_fcurves, obj, slot_type):
+                        compatible_objects.append(obj.name)
+                        break  # Found compatibility with this slot
+                except Exception:
+                    continue  # Try next slot
     
     is_compatible = len(compatible_objects) > 0
     return is_compatible, compatible_objects
