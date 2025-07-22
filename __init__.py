@@ -313,7 +313,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
     use_selection: BoolProperty(
         name="Selected Objects",
         description="Export selected and visible objects only",
-        default=False,
+        default=True,
     )
     use_visible: BoolProperty(
         name='Visible Objects',
@@ -356,6 +356,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         description="How to apply custom and units scalings in generated FBX file "
         "(Blender uses FBX scale to detect units on import, "
         "but many other applications do not handle the same way)",
+        default='FBX_SCALE_UNITS',
     )
 
     use_space_transform: BoolProperty(
@@ -377,7 +378,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         "to fix coordinate system alignment between Blender and target applications. "
         "Only available when Forward = -Z and Up = Y "
         "(WARNING! experimental option, use at own risk, known to be broken with armatures/animations)",
-        default=False,
+        default=True,
     )
 
     object_types: EnumProperty(
@@ -462,7 +463,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         name="Add Leaf Bones",
         description="Append a final bone to the end of each chain to specify last bone length "
         "(use this when you intend to edit the armature from exported data)",
-        default=True  # False for commit!
+        default=False,
     )
     primary_bone_axis: EnumProperty(
         name="Primary Bone Axis",
@@ -489,7 +490,7 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
     use_armature_deform_only: BoolProperty(
         name="Only Deform Bones",
         description="Only write deforming bones (and non-deforming ones when they have deforming children)",
-        default=False,
+        default=True,
     )
     armature_nodetype: EnumProperty(
         name="Armature FBXNode Type",
@@ -517,12 +518,12 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         name="NLA Strips",
         description="Export each non-muted NLA strip as a separated FBX's AnimStack, if any, "
         "instead of global scene animation",
-        default=True,
+        default=False,
     )
     bake_anim_export_actions: BoolProperty(
         name="Actions",
         description="Export actions as separated FBX AnimStacks",
-        default=True,
+        default=False,
     )
     # Animation Groups export option (only available when Action Binder is enabled)
     bake_anim_export_animation_groups: BoolProperty(
@@ -566,9 +567,9 @@ class ExportFBX(bpy.types.Operator, ExportHelper):
         default='ACTION',
     )
     add_rest_pose_as_action: BoolProperty(
-        name="Add Rest Pose as Action",
-        description="Export the rest pose as an action with 1 frame, exported as the first action",
-        default=False,
+        name="Add Rest Pose as Animation",
+        description="Export the rest pose as an animation with 1 frame, exported as the first animation",
+        default=True,
     )
     bake_anim_step: FloatProperty(
         name="Sampling Rate",
@@ -681,12 +682,22 @@ def export_panel_include(layout, operator, is_file_browser):
             sublayout.prop(operator, "use_visible")
             sublayout.prop(operator, "use_active_collection")
 
-        body.column().prop(operator, "object_types")
+        # Object Types as horizontal icon buttons  
+        row = body.row()
+        row.use_property_split = True
+        sub_row = row.row(align=True)
+        sub_row.prop_enum(operator, "object_types", 'EMPTY', text="", icon='EMPTY_DATA')
+        sub_row.prop_enum(operator, "object_types", 'CAMERA', text="", icon='CAMERA_DATA')
+        sub_row.prop_enum(operator, "object_types", 'LIGHT', text="", icon='LIGHT_DATA')
+        sub_row.prop_enum(operator, "object_types", 'ARMATURE', text="", icon='ARMATURE_DATA')
+        sub_row.prop_enum(operator, "object_types", 'MESH', text="", icon='MESH_DATA')
+        sub_row.prop_enum(operator, "object_types", 'OTHER', text="", icon='OBJECT_DATA')
+        
         body.prop(operator, "use_custom_props")
 
 
 def export_panel_transform(layout, operator):
-    header, body = layout.panel("FBX_export_transform", default_closed=False)
+    header, body = layout.panel("FBX_export_transform", default_closed=True)
     header.label(text="Transform")
     if body:
         body.prop(operator, "global_scale")
@@ -739,37 +750,53 @@ def export_panel_armature(layout, operator):
 
 
 def export_panel_animation(layout, operator):
-    header, body = layout.panel("FBX_export_bake_animation", default_closed=True)
+    header, body = layout.panel("FBX_export_bake_animation", default_closed=False)
     header.use_property_split = False
     header.prop(operator, "bake_anim", text="")
     header.label(text="Animation")
     if body:
         body.enabled = operator.bake_anim
+        
+        # Main animation settings at the top
         body.prop(operator, "add_rest_pose_as_action")
-        body.prop(operator, "bake_anim_use_all_bones")
         body.prop(operator, "bake_anim_use_nla_strips")
-        body.prop(operator, "bake_anim_export_actions")
-        
-        # Action selection UI - always show, but grey out if actions not enabled
-        anim_utils.draw_action_selection_ui(body, operator, enabled=operator.bake_anim_export_actions)
-        
-        # Animation Groups option (only show if Action Binder is enabled)
-        if anim_utils.is_action_binder_enabled():
-            body.prop(operator, "bake_anim_export_animation_groups")
-            
-            # Animation Groups selection UI - always show, but grey out if animation groups not enabled
-            anim_utils.draw_animation_group_selection_ui(body, operator, enabled=operator.bake_anim_export_animation_groups)
-        else:
-            # Show why Animation Groups are not available
-            debug_box = body.box()
-            debug_box.label(text="Animation Groups not available", icon='ERROR')
-            debug_box.label(text="Action Binder addon not detected")
-        
-        body.prop(operator, "action_name_format")
-        body.separator()
+        body.prop(operator, "bake_anim_use_all_bones")
         body.prop(operator, "bake_anim_force_startend_keying")
         body.prop(operator, "bake_anim_step")
         body.prop(operator, "bake_anim_simplify_factor")
+        
+        body.separator()
+        
+        # Actions collapsible panel
+        actions_header, actions_body = body.panel("FBX_export_actions", default_closed=True)
+        actions_header.use_property_split = False
+        actions_header.prop(operator, "bake_anim_export_actions", text="")
+        actions_header.label(text="Actions")
+        if actions_body:
+            actions_body.enabled = operator.bake_anim_export_actions
+            
+            # Action selection UI
+            anim_utils.draw_action_selection_ui(actions_body, operator, enabled=operator.bake_anim_export_actions)
+            
+            # Action name format inside actions panel
+            actions_body.prop(operator, "action_name_format")
+        
+        # Animation Groups collapsible panel (only show if Action Binder is enabled)
+        if anim_utils.is_action_binder_enabled():
+            groups_header, groups_body = body.panel("FBX_export_animation_groups", default_closed=False)
+            groups_header.use_property_split = False
+            groups_header.prop(operator, "bake_anim_export_animation_groups", text="")
+            groups_header.label(text="Animation Groups")
+            if groups_body:
+                groups_body.enabled = operator.bake_anim_export_animation_groups
+                
+                # Animation Groups selection UI
+                anim_utils.draw_animation_group_selection_ui(groups_body, operator, enabled=operator.bake_anim_export_animation_groups)
+        else:
+            # Show why Animation Groups are not available
+            groups_info = body.box()
+            groups_info.label(text="Animation Groups not available", icon='INFO')
+            groups_info.label(text="Requires Action Binder addon")
 
 
 class IO_FH_fbx(bpy.types.FileHandler):

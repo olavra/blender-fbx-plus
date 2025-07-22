@@ -3902,7 +3902,9 @@ def defaults_unity3d():
         # with the old transforms.
         "bake_space_transform": False,
 
-        "use_selection": False,
+        "use_selection": True,
+        "apply_scale_options": 'FBX_SCALE_UNITS',
+        "bake_transform": True,
 
         "object_types": {'ARMATURE', 'EMPTY', 'MESH', 'OTHER'},
         "use_mesh_modifiers": True,
@@ -3915,18 +3917,19 @@ def defaults_unity3d():
         "use_triangles": False,
 
         "use_armature_deform_only": True,
+        "add_leaf_bones": False,
 
         "use_custom_props": True,
 
         "bake_anim": True,
         "bake_anim_simplify_factor": 1.0,
         "bake_anim_step": 1.0,
-        "bake_anim_use_nla_strips": True,
-        "bake_anim_export_actions": True,
+        "bake_anim_use_nla_strips": False,
+        "bake_anim_export_actions": False,
         "selected_actions": None,
-        "action_name_format": 'ACTION',  # Default action name format
-        "add_rest_pose_as_action": False,  # Default rest pose setting
-        "add_leaf_bones": False,  # Avoid memory/performance cost for something only useful for modelling
+        "action_name_format": 'ACTION',
+        "add_rest_pose_as_action": True,
+        "bake_anim_export_animation_groups": True,
         "primary_bone_axis": 'Y',  # Doesn't really matter for Unity, so leave unchanged
         "secondary_bone_axis": 'X',
 

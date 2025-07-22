@@ -484,9 +484,8 @@ def draw_action_selection_ui(layout, operator, enabled=True):
     # Get available actions
     available_actions = list(bpy.data.actions)
     
-    # Action selection UI
-    box = layout.box()
-    box.enabled = enabled
+    # Action selection UI (no box wrapper since we're inside a panel now)
+    layout.enabled = enabled
     
     if available_actions:
         # Set the operator reference for selection operators
@@ -495,15 +494,15 @@ def draw_action_selection_ui(layout, operator, enabled=True):
         ACTION_OT_select_compatible_actions.operator_ref = operator
         
         # Template list for actions
-        box.template_list(
+        layout.template_list(
             "ACTION_UL_selection_list", "",  # UIList identifier
             operator, "selected_actions",     # Data collection
             operator, "selected_actions_index",  # Active index property
-            rows=6, maxrows=12               # Display settings
+            rows=4, maxrows=8                # Smaller since it's in a panel
         )
         
         # Selection buttons
-        row = box.row(align=True)
+        row = layout.row(align=True)
         select_all_op = row.operator("action.select_all_actions", text="All", icon='CHECKBOX_HLT')
         deselect_all_op = row.operator("action.deselect_all_actions", text="None", icon='CHECKBOX_DEHLT')
         
@@ -511,7 +510,7 @@ def draw_action_selection_ui(layout, operator, enabled=True):
         if hasattr(operator, 'bake_anim_export_actions') and operator.bake_anim_export_actions:
             compatible_op = row.operator("action.select_compatible_actions", text="Compatible", icon='CHECKMARK')
     else:
-        box.label(text="No actions available", icon='INFO')
+        layout.label(text="No actions available", icon='INFO')
 
 
 def get_selected_action_names(operator):
@@ -585,12 +584,8 @@ def populate_animation_group_list(operator):
             item.name = group.name
             item.group_name = group.name
             
-            # Check compatibility to set default selection
-            if hasattr(operator, 'bake_anim_export_animation_groups') and operator.bake_anim_export_animation_groups:
-                is_compatible = is_animation_group_compatible_with_export(context, operator, group.name)
-                item.selected = is_compatible  # Only select compatible groups by default
-            else:
-                item.selected = True  # If export animation groups is disabled, select all by default
+            # Select all animation groups by default
+            item.selected = True
 
 
 def draw_animation_group_selection_ui(layout, operator, enabled=True):
@@ -603,9 +598,8 @@ def draw_animation_group_selection_ui(layout, operator, enabled=True):
     available_groups = list(groups_data.groups) if groups_data else []
     is_addon_enabled = is_action_binder_enabled()
     
-    # Animation Group selection UI
-    box = layout.box()
-    box.enabled = enabled
+    # Animation Group selection UI (no box wrapper since we're inside a panel now)
+    layout.enabled = enabled
     
     if available_groups:
         # Set the operator reference for selection operators
@@ -614,15 +608,15 @@ def draw_animation_group_selection_ui(layout, operator, enabled=True):
         ANIMATION_GROUP_OT_select_compatible_groups.operator_ref = operator
         
         # Template list for animation groups
-        box.template_list(
+        layout.template_list(
             "ANIMATION_GROUP_UL_selection_list", "",  # UIList identifier
             operator, "selected_animation_groups",     # Data collection
             operator, "selected_animation_groups_index",  # Active index property
-            rows=6, maxrows=12               # Display settings
+            rows=4, maxrows=8                # Smaller since it's in a panel
         )
         
         # Selection buttons
-        row = box.row(align=True)
+        row = layout.row(align=True)
         select_all_op = row.operator("animation_group.select_all_groups", text="All", icon='CHECKBOX_HLT')
         deselect_all_op = row.operator("animation_group.deselect_all_groups", text="None", icon='CHECKBOX_DEHLT')
         
@@ -631,9 +625,9 @@ def draw_animation_group_selection_ui(layout, operator, enabled=True):
             compatible_op = row.operator("animation_group.select_compatible_groups", text="Compatible", icon='CHECKMARK')
     else:
         if is_addon_enabled:
-            box.label(text="No Animation Groups available", icon='INFO')
+            layout.label(text="No Animation Groups available", icon='INFO')
         else:
-            box.label(text="Action Binder addon not enabled", icon='ERROR')
+            layout.label(text="Action Binder addon not enabled", icon='ERROR')
 
 
 def get_selected_animation_group_names(operator):
