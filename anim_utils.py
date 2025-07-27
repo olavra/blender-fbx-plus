@@ -10,6 +10,48 @@ class ActionSelectionItem(PropertyGroup):
     selected: BoolProperty(default=True)
 
 
+class AnimationGroupSelectionItem(PropertyGroup):
+    """Property group for animation group selection items"""
+    name: StringProperty()
+    group_name: StringProperty()
+    selected: BoolProperty(default=True)
+
+
+def is_action_binder_enabled():
+    """Check if Action Binder addon is enabled"""
+    try:
+        import addon_utils
+        # Check multiple possible addon names
+        addon_names = ["action_binder", "Action Binder"]
+        for name in addon_names:
+            if addon_utils.check(name)[0]:
+                return True
+        
+        # Also check if the module is directly available
+        try:
+            import sys
+            return "action_binder" in sys.modules
+        except:
+            pass
+            
+        return False
+    except Exception as e:
+        print(f"Error checking Action Binder addon: {e}")
+        return False
+
+
+def get_animation_groups_data():
+    """Get Animation Groups data from scene if Action Binder is enabled"""
+    if not is_action_binder_enabled():
+        return None
+    
+    scene = bpy.context.scene
+    if not hasattr(scene, 'animation_groups_data'):
+        return None
+    
+    return scene.animation_groups_data
+
+
 class ACTION_UL_selection_list(UIList):
     """UIList for displaying action selection with checkboxes and compatibility info"""
     
@@ -154,6 +196,96 @@ class ACTION_OT_select_compatible_actions(bpy.types.Operator):
                     is_compatible, _ = is_action_compatible_with_export(context, self.operator_ref, action)
                     item.selected = is_compatible
         return {'FINISHED'}
+
+
+class ANIMATION_GROUP_UL_selection_list(UIList):
+    """UIList for displaying animation group selection with checkboxes"""
+    
+    def draw_item(self, context, layout, data, item, icon, active_data, active_propname, index):
+        if self.layout_type in {'DEFAULT', 'COMPACT'}:
+            # Main row
+            row = layout.row(align=True)
+            
+            # Checkbox
+            checkbox_row = row.row()
+            checkbox_row.alignment = 'LEFT'
+            checkbox_row.prop(item, "selected", text="")
+            
+            # Add some spacing between checkbox and name
+            row.separator_spacer()
+            
+            # Animation Group name
+            name_row = row.row()
+            name_row.label(text=item.name, icon='SEQ_STRIP_META')
+            
+        elif self.layout_type in {'GRID'}:
+            layout.alignment = 'CENTER'
+            layout.prop(item, "selected", text="")
+
+
+class ANIMATION_GROUP_OT_select_all_groups(bpy.types.Operator):
+    """Select all animation groups"""
+    bl_idname = "animation_group.select_all_groups"
+    bl_label = "Select All Animation Groups"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    # Class variable to store operator reference
+    operator_ref = None
+    
+    def execute(self, context):
+        if self.operator_ref is None:
+            return {'CANCELLED'}
+        
+        operator = self.operator_ref
+        
+        for item in operator.selected_animation_groups:
+            item.selected = True
+        
+        return {'FINISHED'}
+
+
+class ANIMATION_GROUP_OT_deselect_all_groups(bpy.types.Operator):
+    """Deselect all animation groups"""
+    bl_idname = "animation_group.deselect_all_groups"
+    bl_label = "Deselect All Animation Groups"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    # Class variable to store operator reference
+    operator_ref = None
+    
+    def execute(self, context):
+        if self.operator_ref is None:
+            return {'CANCELLED'}
+        
+        operator = self.operator_ref
+        
+        for item in operator.selected_animation_groups:
+            item.selected = False
+        
+        return {'FINISHED'}
+
+
+class ANIMATION_GROUP_OT_select_compatible_groups(bpy.types.Operator):
+    """Select only compatible animation groups"""
+    bl_idname = "animation_group.select_compatible_groups"
+    bl_label = "Select Compatible Animation Groups"
+    bl_options = {'REGISTER', 'INTERNAL'}
+    
+    # Class variable to store operator reference
+    operator_ref = None
+    
+    def execute(self, context):
+        if self.operator_ref is None:
+            return {'CANCELLED'}
+        
+        operator = self.operator_ref
+        
+        for item in operator.selected_animation_groups:
+            is_compatible = is_animation_group_compatible_with_export(context, operator, item.group_name)
+            item.selected = is_compatible
+        
+        return {'FINISHED'}
+
 
 
 def get_context_objects_for_export(context, operator):
@@ -352,9 +484,8 @@ def draw_action_selection_ui(layout, operator, enabled=True):
     # Get available actions
     available_actions = list(bpy.data.actions)
     
-    # Action selection UI
-    box = layout.box()
-    box.enabled = enabled
+    # Action selection UI (no box wrapper since we're inside a panel now)
+    layout.enabled = enabled
     
     if available_actions:
         # Set the operator reference for selection operators
@@ -363,15 +494,15 @@ def draw_action_selection_ui(layout, operator, enabled=True):
         ACTION_OT_select_compatible_actions.operator_ref = operator
         
         # Template list for actions
-        box.template_list(
+        layout.template_list(
             "ACTION_UL_selection_list", "",  # UIList identifier
             operator, "selected_actions",     # Data collection
             operator, "selected_actions_index",  # Active index property
-            rows=6, maxrows=12               # Display settings
+            rows=4, maxrows=8                # Smaller since it's in a panel
         )
         
         # Selection buttons
-        row = box.row(align=True)
+        row = layout.row(align=True)
         select_all_op = row.operator("action.select_all_actions", text="All", icon='CHECKBOX_HLT')
         deselect_all_op = row.operator("action.deselect_all_actions", text="None", icon='CHECKBOX_DEHLT')
         
@@ -379,7 +510,7 @@ def draw_action_selection_ui(layout, operator, enabled=True):
         if hasattr(operator, 'bake_anim_export_actions') and operator.bake_anim_export_actions:
             compatible_op = row.operator("action.select_compatible_actions", text="Compatible", icon='CHECKMARK')
     else:
-        box.label(text="No actions available", icon='INFO')
+        layout.label(text="No actions available", icon='INFO')
 
 
 def get_selected_action_names(operator):
@@ -387,23 +518,150 @@ def get_selected_action_names(operator):
     return {item.action for item in operator.selected_actions if item.selected}
 
 
+def is_animation_group_compatible_with_export(context, operator, group_name):
+    """Check if an Animation Group is compatible with export objects"""
+    if not is_action_binder_enabled():
+        return False
+    
+    groups_data = get_animation_groups_data()
+    if not groups_data:
+        return False
+    
+    # Find the group by name
+    target_group = None
+    for group in groups_data.groups:
+        if group.name == group_name:
+            target_group = group
+            break
+    
+    if not target_group or not target_group.action:
+        return False
+    
+    # Get objects that would be exported
+    ctx_objects = get_context_objects_for_export(context, operator)
+    if not ctx_objects:
+        return False
+    
+    # Get assigned objects from the group
+    assigned_objects = []
+    for assignment in target_group.slot_assignments:
+        if assignment.assigned_object:
+            assigned_objects.append(assignment.assigned_object)
+    
+    if not assigned_objects:
+        return False
+    
+    # Check if any assigned object is in the export selection
+    ctx_object_names = {obj.name for obj in ctx_objects}
+    assigned_object_names = {obj.name for obj in assigned_objects}
+    
+    return bool(ctx_object_names.intersection(assigned_object_names))
+
+
+def populate_animation_group_list(operator):
+    """Populate the selected_animation_groups collection with available animation groups"""
+    if not is_action_binder_enabled():
+        operator.selected_animation_groups.clear()
+        return
+    
+    groups_data = get_animation_groups_data()
+    if not groups_data:
+        operator.selected_animation_groups.clear()
+        return
+    
+    available_groups = list(groups_data.groups)
+    
+    # Update selected_animation_groups collection if needed
+    if len(operator.selected_animation_groups) != len(available_groups):
+        operator.selected_animation_groups.clear()
+        context = bpy.context
+        
+        for group in available_groups:
+            if not group.action:  # Skip groups without actions
+                continue
+                
+            item = operator.selected_animation_groups.add()
+            item.name = group.name
+            item.group_name = group.name
+            
+            # Select all animation groups by default
+            item.selected = True
+
+
+def draw_animation_group_selection_ui(layout, operator, enabled=True):
+    """Draw the animation group selection UI in the export panel using template_list"""
+    # Always populate selected_animation_groups collection
+    populate_animation_group_list(operator)
+    
+    # Get available groups
+    groups_data = get_animation_groups_data()
+    available_groups = list(groups_data.groups) if groups_data else []
+    is_addon_enabled = is_action_binder_enabled()
+    
+    # Animation Group selection UI (no box wrapper since we're inside a panel now)
+    layout.enabled = enabled
+    
+    if available_groups:
+        # Set the operator reference for selection operators
+        ANIMATION_GROUP_OT_select_all_groups.operator_ref = operator
+        ANIMATION_GROUP_OT_deselect_all_groups.operator_ref = operator
+        ANIMATION_GROUP_OT_select_compatible_groups.operator_ref = operator
+        
+        # Template list for animation groups
+        layout.template_list(
+            "ANIMATION_GROUP_UL_selection_list", "",  # UIList identifier
+            operator, "selected_animation_groups",     # Data collection
+            operator, "selected_animation_groups_index",  # Active index property
+            rows=4, maxrows=8                # Smaller since it's in a panel
+        )
+        
+        # Selection buttons
+        row = layout.row(align=True)
+        select_all_op = row.operator("animation_group.select_all_groups", text="All", icon='CHECKBOX_HLT')
+        deselect_all_op = row.operator("animation_group.deselect_all_groups", text="None", icon='CHECKBOX_DEHLT')
+        
+        # Add compatible selection button if animation groups export is enabled
+        if hasattr(operator, 'bake_anim_export_animation_groups') and operator.bake_anim_export_animation_groups:
+            compatible_op = row.operator("animation_group.select_compatible_groups", text="Compatible", icon='CHECKMARK')
+    else:
+        if is_addon_enabled:
+            layout.label(text="No Animation Groups available", icon='INFO')
+        else:
+            layout.label(text="Action Binder addon not enabled", icon='ERROR')
+
+
+def get_selected_animation_group_names(operator):
+    """Get a set of selected animation group names from the operator"""
+    return {item.group_name for item in operator.selected_animation_groups if item.selected}
+
+
 def register():
     """Register the PropertyGroup classes"""
     bpy.utils.register_class(ActionSelectionItem)
+    bpy.utils.register_class(AnimationGroupSelectionItem)
     bpy.utils.register_class(ACTION_UL_selection_list)
+    bpy.utils.register_class(ANIMATION_GROUP_UL_selection_list)
     bpy.utils.register_class(ACTION_OT_show_compatibility_warning)
     bpy.utils.register_class(ACTION_OT_show_compatibility_info)
     bpy.utils.register_class(ACTION_OT_select_all_actions)
     bpy.utils.register_class(ACTION_OT_deselect_all_actions)
     bpy.utils.register_class(ACTION_OT_select_compatible_actions)
+    bpy.utils.register_class(ANIMATION_GROUP_OT_select_all_groups)
+    bpy.utils.register_class(ANIMATION_GROUP_OT_deselect_all_groups)
+    bpy.utils.register_class(ANIMATION_GROUP_OT_select_compatible_groups)
 
 
 def unregister():
     """Unregister the PropertyGroup classes"""
-    bpy.utils.unregister_class(ActionSelectionItem)
-    bpy.utils.unregister_class(ACTION_UL_selection_list)
-    bpy.utils.unregister_class(ACTION_OT_show_compatibility_warning)
-    bpy.utils.unregister_class(ACTION_OT_show_compatibility_info)
-    bpy.utils.unregister_class(ACTION_OT_select_all_actions)
+    bpy.utils.unregister_class(ANIMATION_GROUP_OT_select_compatible_groups)
+    bpy.utils.unregister_class(ANIMATION_GROUP_OT_deselect_all_groups)
+    bpy.utils.unregister_class(ANIMATION_GROUP_OT_select_all_groups)
+    bpy.utils.unregister_class(ACTION_OT_select_compatible_actions)
     bpy.utils.unregister_class(ACTION_OT_deselect_all_actions)
-    bpy.utils.unregister_class(ACTION_OT_select_compatible_actions) 
+    bpy.utils.unregister_class(ACTION_OT_select_all_actions)
+    bpy.utils.unregister_class(ACTION_OT_show_compatibility_info)
+    bpy.utils.unregister_class(ACTION_OT_show_compatibility_warning)
+    bpy.utils.unregister_class(ANIMATION_GROUP_UL_selection_list)
+    bpy.utils.unregister_class(ACTION_UL_selection_list)
+    bpy.utils.unregister_class(AnimationGroupSelectionItem)
+    bpy.utils.unregister_class(ActionSelectionItem) 
