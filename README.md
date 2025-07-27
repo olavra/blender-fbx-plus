@@ -22,3 +22,7 @@ Allows the user to decide the format in which the action names will be exported:
 ### Animation > Action List
 Displays a list of all the Actions available in the blend file and allows you to select which ones will be exported as AnimStack.
 Each Action does a pre-check of which objects included in the export are compatible with the f-curves.
+
+### Animation > Animation Groups
+If you have the Action Binder plugin installed, it allows you to export Animation Groups as individual FBXAnimStacks.
+You can get Action Binder here. https://github.com/olavra/blender-fbx-plus
