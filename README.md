@@ -25,4 +25,4 @@ Each Action does a pre-check of which objects included in the export are compati
 
 ### Animation > Animation Groups
 If you have the Action Binder plugin installed, it allows you to export Animation Groups as individual FBXAnimStacks.
-You can get Action Binder here. https://github.com/olavra/blender-fbx-plus
+You can get [Action Binder here](https://github.com/olavra/blender-actions-binder).
